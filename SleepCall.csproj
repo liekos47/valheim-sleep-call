@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>SleepCall</AssemblyName>
+    <RootNamespace>SleepCall</RootNamespace>
+    <Version>1.0.2</Version>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <Deterministic>true</Deterministic>
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <!-- Points VALHEIM_DEDI_INSTALL at a dedicated-server layout (valheim_server_Data\Managed + BepInEx\core). Not committed. -->
+  <Import Project="Environment.props" Condition="Exists('Environment.props')" />
+
+  <ItemGroup>
+    <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.1" PrivateAssets="all" />
+    <Reference Include="assembly_valheim" Publicize="true">
+      <HintPath>$(VALHEIM_DEDI_INSTALL)\valheim_server_Data\Managed\assembly_valheim.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="assembly_utils">
+      <HintPath>$(VALHEIM_DEDI_INSTALL)\valheim_server_Data\Managed\assembly_utils.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>$(VALHEIM_DEDI_INSTALL)\valheim_server_Data\Managed\UnityEngine.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(VALHEIM_DEDI_INSTALL)\valheim_server_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(VALHEIM_DEDI_INSTALL)\BepInEx\core\0Harmony.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="BepInEx">
+      <HintPath>$(VALHEIM_DEDI_INSTALL)\BepInEx\core\BepInEx.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Thunderstore package: pkg\ holds manifest, icon, README, CHANGELOG and plugins\SleepCall.dll,
+       zipped to SleepCall-<version>.zip for upload. -->
+  <Target Name="Package" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <MakeDir Directories="$(MSBuildProjectDirectory)\pkg\plugins" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(MSBuildProjectDirectory)\pkg\plugins" />
+    <Copy SourceFiles="manifest.json;README.md;CHANGELOG.md;icon.png" DestinationFolder="$(MSBuildProjectDirectory)\pkg" />
+    <ZipDirectory SourceDirectory="$(MSBuildProjectDirectory)\pkg" DestinationFile="$(MSBuildProjectDirectory)\SleepCall-$(Version).zip" Overwrite="true" />
+  </Target>
+
+</Project>

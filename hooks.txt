@@ -1,0 +1,26 @@
+# SleepCall - patch target and every game member the code uses. Check with HookCheck --check hooks.txt after a game update.
+Game.EverybodyIsTryingToSleep
+Game.UpdateSleeping
+ZNet.GetAllCharacterZDOS
+ZDO.GetBool
+ZDO.GetFloat
+ZDO.GetString
+ZDO.GetPosition
+ZDO.GetPrefab
+ZDOMan.FindSectorObjects
+ZoneSystem.GetZone
+ZNetScene.GetPrefab
+ZRoutedRpc.InvokeRoutedRPC
+MessageHud.RPC_ShowMessage
+Chat.RPC_ChatMessage
+UserInfo..ctor
+UserInfo.Serialize
+SimulationDistance..ctor
+field:ZDO.m_uid
+field:UserInfo.Name
+field:ZDOVars.s_inBed
+field:ZDOVars.s_dead
+field:ZDOVars.s_health
+field:ZDOVars.s_playerName
+field:ZDOVars.s_alert
+field:ZDOVars.s_tamed
