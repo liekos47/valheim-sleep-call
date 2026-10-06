@@ -8,6 +8,10 @@ that to "one player" have a side effect: the moment someone lies down, everyone 
 to black - mid-fight, mid-voyage, mid-anything. SleepCall keeps the one-player rule and
 fixes the surprise.
 
+Inspired by [NowYouSleep](https://thunderstore.io/c/valheim/p/Hex_Viking/NowYouSleep/) by
+Hex_Viking, which lets the night pass when one player is sleeping. SleepCall is written from
+scratch and adds the warning, the countdown and the wait for players who are busy.
+
 ## What happens
 
 1. A player lies down. Everyone sees **"Astrid went to bed. The night will pass in 60
