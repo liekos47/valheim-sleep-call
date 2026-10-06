@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using BepInEx;
 using BepInEx.Configuration;
@@ -25,7 +26,7 @@ namespace SleepCall
 	{
 		public const string Guid = "liekos47.sleepcall";
 		public const string Name = "SleepCall";
-		public const string Version = "1.0.2";
+		public const string Version = "1.0.3";
 
 		internal static ManualLogSource Log;
 
@@ -33,6 +34,7 @@ namespace SleepCall
 		internal static ConfigEntry<int> CountdownSeconds;
 		internal static ConfigEntry<string> ReminderSeconds;
 		internal static ConfigEntry<int> BannerIntervalSeconds;
+		internal static ConfigEntry<int> FinalCountdownSeconds;
 		internal static ConfigEntry<bool> TopLeftFeed;
 		internal static ConfigEntry<bool> ChatAnnounce;
 		internal static ConfigEntry<bool> WaitForCombat;
@@ -45,6 +47,7 @@ namespace SleepCall
 		internal static ConfigEntry<bool> DebugLog;
 
 		private Harmony harmony;
+		private DateTime configStamp;
 
 		private void Awake()
 		{
@@ -58,6 +61,8 @@ namespace SleepCall
 				"Comma-separated seconds-remaining at which a reminder is also posted to the top-left feed.");
 			BannerIntervalSeconds = Config.Bind("Countdown", "BannerIntervalSeconds", 10,
 				"Re-show the centre-screen countdown banner this often, with the time left. Centre messages fade after about 4 seconds, so a single one is easy to miss. 0 = only at the start and the reminders.");
+			FinalCountdownSeconds = Config.Bind("Countdown", "FinalCountdownSeconds", 5,
+				"Count the last seconds down one by one in the centre of the screen (\"Sleeping in 5\", 4, 3, 2, 1, \"Sleeping now\"). It always runs straight before the night passes, including after waiting for a fight or a journey to end. 0 = off.");
 			TopLeftFeed = Config.Bind("Countdown", "TopLeftFeed", true,
 				"Also post the countdown start, reminders, waiting reasons and the outcome to the top-left message feed, which stays on screen longer, queues instead of replacing, and is kept in the Compendium's message log.");
 			ChatAnnounce = Config.Bind("Countdown", "ChatAnnounce", false,
@@ -81,18 +86,35 @@ namespace SleepCall
 			harmony = new Harmony(Guid);
 			harmony.PatchAll();
 			Log.LogInfo($"{Name} {Version} loaded");
-			// Re-read the config file every 30 s so settings (including DebugLog) can be changed
-			// without a server restart. BepInEx does not watch the file on its own.
+			// Check the config file every 30 s and re-read it when it has changed, so settings
+			// (including DebugLog) apply without a server restart. BepInEx does not watch the file
+			// on its own. This is settings only; to reload the code itself, use ScriptEngine.
+			configStamp = ConfigStamp();
 			InvokeRepeating(nameof(ReloadConfig), 30f, 30f);
 		}
 
+		private DateTime ConfigStamp() => File.GetLastWriteTimeUtc(Config.ConfigFilePath);
+
 		private void ReloadConfig()
 		{
-			try { Config.Reload(); } catch (Exception e) { Log.LogWarning($"config reload failed: {e.Message}"); }
+			try
+			{
+				if (ConfigStamp() == configStamp) return;
+				Config.Reload();
+				// Taken after the reload: a changed value makes BepInEx write the file back.
+				configStamp = ConfigStamp();
+				Log.LogInfo("config file changed, settings re-read");
+			}
+			catch (Exception e)
+			{
+				Log.LogWarning($"config reload failed: {e.Message}");
+			}
 		}
 
+		// Leave nothing behind, so the plugin can be unloaded and loaded again (ScriptEngine).
 		private void OnDestroy()
 		{
+			CancelInvoke();
 			harmony?.UnpatchSelf();
 		}
 	}
@@ -113,7 +135,7 @@ namespace SleepCall
 
 	internal static class SleepCoordinator
 	{
-		private enum State { Idle, Counting, Waiting, Skipping }
+		private enum State { Idle, Counting, Waiting, Final, Skipping }
 
 		private struct Sample
 		{
@@ -125,23 +147,43 @@ namespace SleepCall
 		}
 
 		private static State state = State.Idle;
+		private static float lastTick;
 		private static float startedAt;
 		private static float lastBanner;
 		private static float lastWaitReminder;
+		private static float finalStartedAt;
+		private static int finalShown;
 		private static bool chatFailed;
 		private static float lastSample;
 		private static readonly HashSet<int> firedReminders = new HashSet<int>();
 		private static readonly Dictionary<ZDOID, Sample> samples = new Dictionary<ZDOID, Sample>();
 		private static readonly Dictionary<int, bool> monsterPrefabs = new Dictionary<int, bool>();
 		private static readonly List<ZDO> scratch = new List<ZDO>();
+		private static readonly List<ZDO> sleepers = new List<ZDO>();
+		private static readonly List<ZDO> awake = new List<ZDO>();
+		private static string reminderSource;
+		private static int[] reminderMarks = new int[0];
 
 		private const float SampleInterval = 1f;
+		private const float StaleAfter = 10f;
 		// Same value vanilla passes to ZRoutedRpc for a broadcast (ZRoutedRpc.Everybody).
 		private const long Everybody = 0L;
 
 		public static bool Tick()
 		{
 			float now = Time.unscaledTime;
+			// Vanilla only asks during the afternoon and night, and the mod is not asked at all
+			// while disabled. A countdown left over from before such a gap must not carry on.
+			if (now - lastTick > StaleAfter)
+			{
+				if (state == State.Counting || state == State.Waiting || state == State.Final)
+				{
+					Info($"dropped a countdown left over from {(int)(now - lastTick)}s ago");
+				}
+				Reset();
+			}
+			lastTick = now;
+
 			List<ZDO> characters = ZNet.instance.GetAllCharacterZDOS();
 			if (characters.Count == 0)
 			{
@@ -155,8 +197,8 @@ namespace SleepCall
 				lastSample = now;
 			}
 
-			var sleepers = new List<ZDO>();
-			var awake = new List<ZDO>();
+			sleepers.Clear();
+			awake.Clear();
 			foreach (ZDO zdo in characters)
 			{
 				if (zdo.GetBool(ZDOVars.s_inBed, false)) sleepers.Add(zdo); else awake.Add(zdo);
@@ -164,7 +206,7 @@ namespace SleepCall
 
 			if (sleepers.Count == 0)
 			{
-				if (state == State.Counting || state == State.Waiting)
+				if (state == State.Counting || state == State.Waiting || state == State.Final)
 				{
 					Info("cancelled: nobody in bed any more");
 					Broadcast("Nobody is in bed any more - the night goes on.", feed: true, chat: true);
@@ -196,13 +238,16 @@ namespace SleepCall
 			}
 
 			float elapsed = now - startedAt;
-			int remaining = SleepCallPlugin.CountdownSeconds.Value - (int)elapsed;
-			if (remaining > 0)
+			int countdown = SleepCallPlugin.CountdownSeconds.Value;
+			// The last seconds of the countdown are counted one by one, see below.
+			int final = Mathf.Clamp(SleepCallPlugin.FinalCountdownSeconds.Value, 0, countdown);
+			int remaining = countdown - (int)elapsed;
+			if (state == State.Counting && remaining > final)
 			{
 				bool reminded = false;
 				foreach (int mark in ReminderMarks())
 				{
-					if (remaining <= mark && firedReminders.Add(mark))
+					if (mark > final && remaining <= mark && firedReminders.Add(mark))
 					{
 						Broadcast($"The night passes in {mark} seconds.", feed: true, chat: false);
 						lastBanner = now;
@@ -221,15 +266,41 @@ namespace SleepCall
 				return false;
 			}
 
+			if (state == State.Final)
+			{
+				int left = final - (int)(now - finalStartedAt);
+				if (left > 0)
+				{
+					if (left != finalShown)
+					{
+						finalShown = left;
+						Center($"Sleeping in {left}");
+					}
+					return false;
+				}
+			}
+
 			List<string> blockers = Blockers(awake, now);
-			int waited = (int)elapsed - SleepCallPlugin.CountdownSeconds.Value;
+			int waited = (int)elapsed - (countdown - final);
 			bool gaveUp = SleepCallPlugin.MaxWaitSeconds.Value > 0 && waited >= SleepCallPlugin.MaxWaitSeconds.Value;
 
 			if (blockers.Count == 0 || gaveUp)
 			{
-				Broadcast(gaveUp
-					? "Waited long enough - the night passes now."
-					: "Everyone is clear. The night passes now.", feed: true, chat: true);
+				// Count the last seconds one by one, so the fade to black never comes straight
+				// after a message that is seconds old. Blockers are checked again when it ends.
+				if (state != State.Final && final > 0)
+				{
+					if (state == State.Waiting)
+					{
+						Feed(gaveUp ? "Waited long enough - the night passes anyway." : "Everyone is clear.");
+					}
+					state = State.Final;
+					finalStartedAt = now;
+					finalShown = final;
+					Center($"Sleeping in {final}");
+					return false;
+				}
+				Broadcast(gaveUp ? "Waited long enough - sleeping now." : "Sleeping now.", feed: true, chat: true);
 				Info(gaveUp
 					? $"skipping: gave up after waiting {waited}s, still blocked by: {string.Join("; ", blockers)}"
 					: $"skipping: countdown done after {(int)elapsed}s, nobody fighting or travelling");
@@ -237,8 +308,10 @@ namespace SleepCall
 				return true;
 			}
 
+			// Someone started fighting or travelling during the final count: say so at once.
+			bool interrupted = state == State.Final;
 			state = State.Waiting;
-			if (now - lastWaitReminder >= SleepCallPlugin.WaitReminderSeconds.Value)
+			if (interrupted || now - lastWaitReminder >= SleepCallPlugin.WaitReminderSeconds.Value)
 			{
 				bool first = lastWaitReminder < 0f;
 				lastWaitReminder = now;
@@ -254,12 +327,19 @@ namespace SleepCall
 			firedReminders.Clear();
 		}
 
-		private static IEnumerable<int> ReminderMarks()
+		// Parsed once per config value, not on every call: this runs every frame of a countdown.
+		private static int[] ReminderMarks()
 		{
-			foreach (string part in SleepCallPlugin.ReminderSeconds.Value.Split(','))
+			string source = SleepCallPlugin.ReminderSeconds.Value;
+			if (source != reminderSource)
 			{
-				if (int.TryParse(part.Trim(), out int v) && v > 0) yield return v;
+				reminderSource = source;
+				reminderMarks = source.Split(',')
+					.Select(part => int.TryParse(part.Trim(), out int v) ? v : 0)
+					.Where(v => v > 0)
+					.ToArray();
 			}
+			return reminderMarks;
 		}
 
 		// Position and health are read once a second; from those we get speed and "took damage recently".

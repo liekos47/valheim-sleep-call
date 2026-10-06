@@ -14,14 +14,17 @@ fixes the surprise.
    seconds."** in the centre of the screen and in the top-left feed, with a note that
    fighting or travelling delays it.
 2. The centre banner repeats every 10 seconds with the time left ("Astrid is in bed - the
-   night passes in 40 seconds"), and reminders at 30, 10 and 5 seconds also go to the feed.
-3. When the countdown ends, the server checks every player who is still up:
+   night passes in 40 seconds"), and reminders at 30 and 10 seconds also go to the feed.
+3. With 5 seconds left, the server checks every player who is still up:
    - **fighting** - took damage in the last 15 s, or an alerted monster is within 40 m
    - **travelling** - moving faster than 3 m/s on average (running, sailing, riding)
 4. If anyone is, everyone sees **"Waiting to sleep: Bjorn is in combat, Sigrid is travelling"**,
    repeated every 15 s until they are clear. After 5 minutes it gives up and skips anyway,
    with a final warning.
-5. The night passes exactly as in vanilla (same fade, same morning, same rested buff).
+5. The last 5 seconds are counted down in the centre of the screen: **"Sleeping in 5"**, 4,
+   3, 2, 1, **"Sleeping now"**. This always comes straight before the fade, also after a
+   wait. If someone starts fighting or travelling during it, it goes back to waiting.
+6. The night passes exactly as in vanilla (same fade, same morning, same rested buff).
 
 If everyone goes to bed, the night skips immediately, as it always has. If the sleeper gets
 up during the countdown, it is cancelled and everyone is told.
@@ -36,14 +39,15 @@ answering the same question will fight.
 
 ## Config
 
-`BepInEx/config/liekos47.sleepcall.cfg`, created on first start. The file is re-read every
-30 seconds, so changes apply without a restart.
+`BepInEx/config/liekos47.sleepcall.cfg`, created on first start. The file is checked every
+30 seconds and re-read when it has changed, so settings apply without a restart.
 
 | Setting | Default | Meaning |
 |---|---|---|
 | `CountdownSeconds` | 60 | warning time before the night passes |
-| `ReminderSeconds` | 30,10,5 | when reminders are also posted to the feed |
+| `ReminderSeconds` | 30,10,5 | when reminders are also posted to the feed; values at or below `FinalCountdownSeconds` are skipped |
 | `BannerIntervalSeconds` | 10 | how often the centre banner repeats; 0 = start and reminders only |
+| `FinalCountdownSeconds` | 5 | count the last seconds one by one ("Sleeping in 5" ... "Sleeping now"); 0 = off |
 | `TopLeftFeed` | true | also post start, reminders, waiting and outcome to the top-left feed |
 | `ChatAnnounce` | false | experimental: also shout the start and outcome in chat |
 | `WaitForCombat` | true | hold while anyone is fighting |
@@ -106,3 +110,11 @@ Output: `bin\Release\SleepCall.dll`, plus a Thunderstore-style package in `pkg\`
 with HookCheck.
 
 Built against Valheim `l-1.0.16` with BepInExPack 5.4.2333.
+
+### Reloading the code without a restart
+
+Only the settings reload by themselves. To swap the DLL on a running server while developing,
+use [ScriptEngine](https://github.com/BepInEx/BepInEx.Debug#scriptengine): install it in
+`BepInEx/plugins` and put `SleepCall.dll` in `BepInEx/scripts` instead of `plugins` (never
+both). SleepCall removes its patch and timer when unloaded, so it can be loaded again cleanly.
+A reload forgets a countdown in progress; it starts again if someone is still in bed.

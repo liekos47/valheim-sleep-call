@@ -1,6 +1,6 @@
 {
   "name": "SleepCall",
-  "version_number": "1.0.2",
+  "version_number": "1.0.3",
   "website_url": "https://github.com/liekos47/valheim-sleep-call",
   "description": "One player in bed skips the night - after a countdown everyone sees, and only once nobody is fighting or travelling.",
   "dependencies": [
