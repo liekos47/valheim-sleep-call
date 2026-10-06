@@ -8,6 +8,10 @@
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <Deterministic>true</Deterministic>
+    <!-- Symbols inside the DLL, so it also loads through ScriptEngine (hot reload), which reads them. -->
+    <DebugType>embedded</DebugType>
+    <!-- The symbols record source file paths; keep the build machine's folders out of them. -->
+    <PathMap>$(MSBuildProjectDirectory)=/_/,$(NuGetPackageRoot)=/_nuget/,$(UserProfile)=/_home/</PathMap>
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
