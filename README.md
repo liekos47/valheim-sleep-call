@@ -1,5 +1,7 @@
 # SleepCall
 
+[![Support me on Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20the%20mod-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/liekos47)
+
 One player in bed is enough to skip the night - but nobody gets a black screen without
 warning.
 
